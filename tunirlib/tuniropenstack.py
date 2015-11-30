@@ -78,10 +78,12 @@ class OpenstackNode(object):
                     break
                 else:
                     print "Nope, not yet."
+
         except Exception as err:
             print err
         if not self.ip:
             self.failed = True
+
     def destroy(self):
         print "Now trying to destroy the Openstack node."
         if self.node.destroy():
