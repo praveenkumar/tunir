@@ -16,91 +16,91 @@
 #
 
 import time
-from novaclient.v2 import client as novaclient
+from libcloud.compute.types import Provider
+from libcloud.compute.providers import get_driver
 
 
 class OpenstackNode(object):
-    def __init__(self, AUTH_URL, USERNAME, API_KEY, IMAGE_NAME, project_id="tunir",
-                 keyname='tunir', security_group='ssh', flavor='m1.small'):
+    def __init__(self, USERNAME, ACCESS_ID,
+                 AUTH_URL, TENANT_NAME, IMAGE_ID, SIZE_ID,
+                 region='us-west-1', keyname='tunir', security_group='ssh'):
 
         print "Starting an OpenStack based job."
-        self.project = project_id
-        self.nova = novaclient.Client(username=USERNAME,
-                api_key=API_KEY, auth_url=AUTH_URL,
-                project_id=project_id)
-        flavors = self.nova.flavors.list()
-        images = self.nova.images.list()
-        self.flavor = None
+        self.region = region
+        cls = get_driver(Provider.OPENSTACK)
+        self.driver = cls(USERNAME, ACCESS_ID, ex_force_auth_url=AUTH_URL,
+                          ex_force_auth_version='2.0_password',
+                          ex_force_service_type='compute',
+                          ex_tenant_name=TENANT_NAME, ex_force_service_region=region)
+        sizes = self.driver.list_sizes()
+        images = self.driver.list_images()
+        security_groups = self.driver.ex_list_security_groups()
+        self.size = None
         self.image = None
         self.state = 'pending'
         self.failed = False
         self.node = None
         self.ip = None
-        print "IMAGE_NAME {0}, FLAVOUR {1} PROJECT {2}".format(IMAGE_NAME, flavor,
-                                                             project_id)
+        print "IMAGE ID {0}, SIZE {1} REGION {2}".format(IMAGE_ID, SIZE_ID, region)
         try:
-            self.nova.authenticate()
-            self.flavor = [s for s in flavors if s.name == flavor][0]
-            self.image = [i for i in images if i.name == IMAGE_NAME][0]
+            self.size = [s for s in sizes if s.id == SIZE_ID][0]
+            self.image = [i for i in images if i.id == IMAGE_ID][0]
+            self.security = [se for se in security_groups if se.name == security_group][0]
         except Exception as err:
             print err
             self.failed = True
             return
         try:
-            self.ip = self.nova.floating_ips.create(self.nova.floating_ip_pools.list()[0].name)
-            network = self.nova.networks.list()[0]
-            self.node = self.nova.servers.create(name='tunir_test_node',
-                                                image=self.image,
-                                                flavor=self.flavor,
-                                                nics=[{'net-id':network.id}],
-                                                key_name = keyname,
-                                                security_groups=[security_group, ], )
-
+            self.node = self.driver.create_node(name='tunir_test_node',
+                                                image=self.image, size=self.size, ex_keyname=keyname,
+                                                ex_security_groups=[self.security, ], )
+            # Now we will try for 3 minutes to get an ip.
+            for i in range(5):
+                time.sleep(30)
+                n = self.driver.ex_get_node_details(self.node.id)
+                if n.public_ips:
+                    self.ip = n.public_ips[0]
+                    self.node = n
+                    print "Got the IP", self.ip
+                    break
             # Now we will wait change the state to running.
             # 0: running
             # 3: pending
             for i in range(5):
                 time.sleep(30)
                 print "Trying to find the state."
-                node = self.nova.servers.find(id=self.node.id)
-                if node.state == 'Active':
-                    self.node = node
+                n = self.driver.ex_get_node_details(self.node.id)
+                if n.state == 0:
+                    self.node = n
                     self.state = 'running'
                     print "The node is in running state."
                     time.sleep(30)
                     break
                 else:
                     print "Nope, not yet."
-
-            # Add floating ip
-            node.add_floating_ip(self.ip)
-
         except Exception as err:
             print err
         if not self.ip:
             self.failed = True
-
     def destroy(self):
-        print "Now trying to destroy the OpenstackNode node."
-        self.ip.delete()
-        if not self.node.delete():
+        print "Now trying to destroy the Openstack node."
+        if self.node.destroy():
             print "Successfully destroyed."
         else:
             print "There was in issue in destorying the node."
 
 
 def openstack_and_run(config):
-    """Takes a config object, starts a new openstack instance, and then returns it.
+    """Takes a config object, starts a new Openstack instance, and then returns it.
 
     :param config: Dictionary
 
-    :returns: Openstack object
+    :returns: OpenstackNode object
     """
-    node = OpenstackNode(config['auth_url'], config['username'],
-                   config['api_key'], config['image_name'],
-                   config.get('project_id', 'tunir'),
-                   config.get('keyname', 'tunir'), config.get('security_group', 'ssh'),
-                   config.get('flavor', 'm1.small'))
+    node = OpenstackNode(config['username'], config['access_id'],
+                         config['auth_url'], config['tenant_name'],
+                         config['image'], config['size_id'], config.get('region', 'us-west-1'),
+                         config.get('keyname', 'tunir'), config.get('security_group', 'ssh'))
     if not node.failed:  # Means we have an ip
-        config['host_string'] = node.ip.ip
+        config['host_string'] = node.ip
     return node, config
