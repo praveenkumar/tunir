@@ -18,7 +18,7 @@
 import os
 import time
 import subprocess
-
+from shutil import copyfile
 
 def system(cmd):
     """
@@ -81,7 +81,8 @@ class Vagrant(object):
     """
     Returns a Vagrant object.
     """
-    def __init__(self, image_url, name='tunir-box', memory=1024, provider='libvirt', path='/var/run/tunir/'):
+    def __init__(self, image_url, name='tunir-box', memory=1024, provider='libvirt',
+                 vagrantfile=None, path='/var/run/tunir/'):
         self.original_path = os.path.abspath(os.path.curdir)
         self.name = name
         self.image_url = image_url
@@ -112,20 +113,22 @@ end'''
   end
 end'''
 
-        self.vagrantfile = None
-        if self.provider == 'libvirt':
-            self.vagrantfile = libvirt_config
-            refresh_storage_pool()
-        else:
-            self.vagrantfile = virtualbox_config
+        self.vagrantfile = vagrantfile
         os.chdir(self.path)
+        if not self.vagrantfile:
+            if self.provider == 'libvirt':
+                self.vagrantfile = libvirt_config
+                refresh_storage_pool()
+            else:
+                self.vagrantfile = virtualbox_config
+            with open('Vagrantfile', 'w') as fobj:
+                fobj.write(self.vagrantfile.format(name, memory))
+            print "Wrote Vagrant config file."
+        else:
+            copyfile(vagrantfile, "%s/Vagrantfile" % self.path)
+            print "Using provided Vagrantfile"
 
-        with open('Vagrantfile', 'w') as fobj:
-            fobj.write(self.vagrantfile.format(name, memory))
-
-        print "Wrote Vagrant config file."
         # Now actually register that image
-
         basename = os.path.basename(image_url)
 
 
@@ -194,8 +197,9 @@ def vagrant_and_run(config, path='/var/run/tunir/'):
     :param config: Our config object
     :return: (Vagrant, config) config object with IP, and key file
     """
-    v = Vagrant(config['image'], memory=config['ram'],
-                provider=config.get('provider', 'libvirt'), path=path)
+    v = Vagrant(config['image'], name=config.get('name', 'tunir-box'),
+                memory=config['ram'], provider=config.get('provider', 'libvirt'),
+                vagrantfile=config.get('vagrantfile',None), path=path)
     if v.keys: # Means we have the box up, and also the ssh config
         config['host_string'] = v.keys['HostName']
         config['ip'] = v.keys['HostName']
@@ -220,4 +224,3 @@ if __name__ == '__main__':
   LogLevel FATAL
 '''
     print parse_ssh_config(data)
-
