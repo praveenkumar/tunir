@@ -47,7 +47,8 @@ Example of a libvirt based job file
       "image": "/var/run/tunir/Fedora-Cloud-Atomic-Vagrant-22-20150521.x86_64.vagrant-libvirt.box",
       "ram": 2048,
       "user": "vagrant",
-      "port": "22"
+      "port": "22",
+      "vagrantfile": "location_of_user_defined_vagrantfile"
     }
 
 Example of a Virtualbox based job file
@@ -62,7 +63,9 @@ Example of a Virtualbox based job file
       "ram": 2048,
       "user": "vagrant",
       "port": "22",
-      "provider": "virtualbox"
+      "provider": "virtualbox",
+      "vagrantfile": "location_of_user_defined_vagrantfile"
     }
 
 .. note:: We have a special key provider in the config for Virtualbox based jobs.
+.. note:: We have a **optional** key *vagrantfile* in the config to make use of already existing Vagrantfile from User.
